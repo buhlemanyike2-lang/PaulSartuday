@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paul Morutse Institute · Admin Portal</title>
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container nav-container">
+            <div class="logo-wrapper">
+                <img src="favicon.ico" alt="Logo" class="favicon">
+                <div class="logo">
+                    <h1>Paul Morutse Institute <span>Admin Portal</span></h1>
+                </div>
+            </div>
+            <div class="mobile-toggle" id="mobileToggle">
+                <i class="fas fa-bars"></i>
+            </div>
+            <div class="nav-links" id="navLinks">
+                <a href="#dashboard" class="active">Dashboard</a>
+                <a href="#" id="logoutBtn">Logout</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main>
+        <!-- Dashboard Header -->
+        <div class="dashboard-header">
+            <h1><i class="fas fa-crown" style="color: var(--accent-red);"></i> Admin Dashboard</h1>
+            <div class="header-actions">
+                <button class="refresh-btn" onclick="refreshSubmissions()" title="Refresh">
+                    <i class="fas fa-sync-alt"></i>
+                    <span>Refresh</span>
+                </button>
+                <div class="admin-badge">
+                    <i class="fas fa-shield-alt"></i>
+                    <span>Administrator Access</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Cards - Only showing total and daily submissions -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon" style="background: rgba(10, 44, 75, 0.1);">
+                    <i class="fas fa-file-upload" style="color: var(--primary-blue);"></i>
+                </div>
+                <div class="stat-details">
+                    <h3 id="totalSubmissions">0</h3>
+                    <p>Total Submissions</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon" style="background: rgba(196, 38, 46, 0.1);">
+                    <i class="fas fa-calendar-day" style="color: var(--accent-red);"></i>
+                </div>
+                <div class="stat-details">
+                    <h3 id="todaySubmissions">0</h3>
+                    <p>Today's Submissions</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Submissions Table - Simplified -->
+        <div class="table-container">
+            <table class="submissions-table">
+                <thead>
+                    <tr>
+                        <th><i class="far fa-calendar-alt"></i> Date & Time</th>
+                        <th><i class="far fa-file"></i> File Name</th>
+                        <th><i class="fas fa-cog"></i> Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="submissionsBody">
+                    <!-- Data will be populated by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div class="loading-spinner" id="loadingSpinner">
+            <div class="spinner"></div>
+            <p>Loading submissions...</p>
+        </div>
+
+        <!-- No Results Message -->
+        <div class="no-results" id="noResults">
+            <i class="fas fa-folder-open"></i>
+            <h3>No submissions found</h3>
+            <p>Uploaded registration forms will appear here</p>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <p>© 2025 Paul Morutse Institute Saturday School · Admin Portal</p>
+            <p>📍 Alafang Secondary, Katlehong | 📞 075 011 3984</p>
+        </div>
+    </footer>
+
+    <!-- File Viewer Modal -->
+    <div class="modal" id="fileViewerModal">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h2><i class="fas fa-file-pdf" style="color: var(--accent-red);"></i> File Viewer</h2>
+                <button class="close-modal" onclick="closeFileViewer()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="fileViewerBody">
+                <div class="file-viewer-container">
+                    <iframe id="fileViewer" src="" width="100%" height="500px" style="border: none;" title="PDF Viewer"></iframe>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn modal-btn-primary" id="downloadFromViewerBtn">
+                    <i class="fas fa-download"></i> Download File
+                </button>
+                <button class="modal-btn modal-btn-danger" onclick="closeFileViewer()">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom JS -->
+    <script src="admin.js"></script>
+</body>
+</html>
