@@ -1,0 +1,14 @@
+name = "registration-uploader"
+main = "src/worker.js"
+compatibility_date = "2024-01-01"
+
+# R2 Bucket binding
+[[r2_buckets]]
+binding = "reg-storage"
+bucket_name = "uploads"
+
+# D1 Database binding
+[[d1_databases]]
+binding = "reg_db"
+database_name = "uploads"
+database_id = "218a1a6f-0fdd-413f-a3d8-795ca2e2c946"
