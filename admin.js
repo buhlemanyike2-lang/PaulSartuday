@@ -16,8 +16,8 @@ if (!authToken) {
     return;
 }
 
-// ===== WORKER API URL =====
-const WORKER_URL = 'https://admin.buhlemanyike2.workers.dev';
+// ===== WORKER API URL - UPDATE THIS TO YOUR ADMIN WORKER =====
+const WORKER_URL = 'https://admin-portal.buhlemanyike2.workers.dev'; // ← CHANGE THIS!
 
 // ===== Initialize empty submissions array =====
 let submissions = [];
@@ -47,6 +47,8 @@ async function fetchSubmissions() {
     loadingSpinner.classList.add('show');
     
     try {
+        console.log('Fetching from:', `${WORKER_URL}/admin/submissions`);
+        
         const response = await fetch(`${WORKER_URL}/admin/submissions`, {
             method: 'GET',
             headers: {
@@ -55,27 +57,37 @@ async function fetchSubmissions() {
             },
         });
 
+        console.log('Response status:', response.status);
+        
         if (!response.ok) {
             if (response.status === 401) {
+                console.error('Unauthorized - clearing auth');
                 sessionStorage.removeItem('pmi_admin_auth');
                 window.location.href = 'login.html';
                 return;
             }
-            throw new Error('Failed to fetch submissions');
+            const errorData = await response.text();
+            console.error('API Error:', errorData);
+            throw new Error(`Failed to fetch: ${response.status} - ${errorData}`);
         }
 
         const data = await response.json();
+        console.log('Received data:', data);
         
         if (data.success) {
             submissions = data.submissions;
+            console.log(`Loaded ${submissions.length} submissions`);
             updateStats();
             renderTable();
         } else {
             throw new Error(data.error || 'Failed to load submissions');
         }
     } catch (error) {
-        console.error('Error fetching submissions:', error);
-        showError('Failed to load submissions. Please try again.');
+        console.error('❌ Error fetching submissions:', error);
+        showError('Failed to load submissions: ' + error.message);
+        noResults.classList.add('show');
+        noResults.querySelector('h3').textContent = 'Connection Error';
+        noResults.querySelector('p').textContent = 'Could not connect to admin server. Please check your internet or contact support.';
     } finally {
         loadingSpinner.classList.remove('show');
     }
@@ -87,7 +99,7 @@ function updateStats() {
     
     const total = submissions.length;
     const todayCount = submissions.filter(s => 
-        s.dateSubmitted.split('T')[0] === today
+        s.dateSubmitted && s.dateSubmitted.split('T')[0] === today
     ).length;
 
     totalSubmissionsEl.textContent = total;
@@ -129,8 +141,8 @@ function renderTable() {
                     <div class="file-info">
                         <i class="fas fa-file-pdf file-icon"></i>
                         <div>
-                            <div class="file-name">${sub.studentName}</div>
-                            <small style="color: var(--text-grey);">${sub.fileName} (${sub.fileSize})</small>
+                            <div class="file-name">${sub.studentName || 'Unknown'}</div>
+                            <small style="color: var(--text-grey);">${sub.fileName || 'No file'} (${sub.fileSize || 'N/A'})</small>
                         </div>
                     </div>
                 </td>
@@ -160,15 +172,13 @@ window.viewFile = function(id) {
     currentFileUrl = submission.fileUrl;
     currentFileName = submission.fileName;
     
-    // Set the iframe source to view the PDF
     if (submission.fileUrl && submission.fileUrl !== '#') {
         fileViewer.src = submission.fileUrl;
     } else {
         fileViewer.src = 'about:blank';
-        alert('File URL not available. Please check the file path.');
+        alert('File URL not available.');
     }
     
-    // Update download button 
     downloadFromViewerBtn.onclick = function() {
         downloadFile(id);
     };
@@ -184,17 +194,19 @@ window.downloadFile = function(id) {
     if (submission.fileUrl && submission.fileUrl !== '#') {
         const link = document.createElement('a');
         link.href = submission.fileUrl;
-        link.download = submission.fileName;
+        link.download = submission.fileName || 'download';
         link.target = '_blank';
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
     } else {
-        alert('File not available for download. Please check the file path.');
+        alert('File not available for download.');
     }
 };
 
 // ===== Delete Submission =====
 window.deleteSubmission = async function(id) {
-    if (confirm('Are you sure you want to delete this submission? This action cannot be undone.')) {
+    if (confirm('Are you sure you want to delete this submission? This cannot be undone.')) {
         try {
             const response = await fetch(`${WORKER_URL}/admin/submissions/${id}`, {
                 method: 'DELETE',
@@ -214,51 +226,46 @@ window.deleteSubmission = async function(id) {
                 
                 alert('Submission deleted successfully.');
             } else {
-                throw new Error('Failed to delete submission');
+                throw new Error('Failed to delete');
             }
         } catch (error) {
-            console.error('Error deleting submission:', error);
-            alert('Failed to delete submission. Please try again.');
+            console.error('Error deleting:', error);
+            alert('Failed to delete submission.');
         }
     }
 };
 
-// ===== Refresh Submissions =====
+// ===== Refresh =====
 window.refreshSubmissions = function() {
     fetchSubmissions();
 };
 
-// ===== Close File Viewer =====
+// ===== Close Modal =====
 window.closeFileViewer = function() {
     fileViewerModal.classList.remove('show');
     fileViewer.src = '';
 };
 
-// ===== Show Error Message =====
+// ===== Show Error =====
 function showError(message) {
-    alert(message);
+    alert('⚠️ ' + message);
 }
 
-// ===== Setup Event Listeners =====
+// ===== Event Listeners =====
 function setupEventListeners() {
-    // Logout functionality
-    document.getElementById('logoutBtn').addEventListener('click', function(e) {
+    document.getElementById('logoutBtn')?.addEventListener('click', function(e) {
         e.preventDefault();
-        if (confirm('Are you sure you want to logout?')) {
+        if (confirm('Logout?')) {
             sessionStorage.removeItem('pmi_admin_auth');
             sessionStorage.removeItem('pmi_admin_email');
             window.location.href = 'login.html';
         }
     }); 
 
-    // Close modal when clicking outside
     fileViewerModal.addEventListener('click', function(e) {
-        if (e.target === fileViewerModal) {
-            closeFileViewer();
-        }
+        if (e.target === fileViewerModal) closeFileViewer();
     });
 
-    // Add keyboard support for closing modal (ESC key)
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && fileViewerModal.classList.contains('show')) {
             closeFileViewer();
