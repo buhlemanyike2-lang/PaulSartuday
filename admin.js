@@ -16,8 +16,8 @@ if (!authToken) {
     return;
 }
 
-// ===== WORKER API URL - UPDATE THIS TO YOUR ADMIN WORKER =====
-const WORKER_URL = 'https://admin-portal.buhlemanyike2.workers.dev'; // ← CHANGE THIS!
+// ===== WORKER API URL =====
+const WORKER_URL = 'https://admin.buhlemanyike2.workers.dev'; // ← Update with your actual worker URL
 
 // ===== Initialize empty submissions array =====
 let submissions = [];
@@ -47,8 +47,6 @@ async function fetchSubmissions() {
     loadingSpinner.classList.add('show');
     
     try {
-        console.log('Fetching from:', `${WORKER_URL}/admin/submissions`);
-        
         const response = await fetch(`${WORKER_URL}/admin/submissions`, {
             method: 'GET',
             headers: {
@@ -57,37 +55,28 @@ async function fetchSubmissions() {
             },
         });
 
-        console.log('Response status:', response.status);
-        
         if (!response.ok) {
             if (response.status === 401) {
-                console.error('Unauthorized - clearing auth');
                 sessionStorage.removeItem('pmi_admin_auth');
                 window.location.href = 'login.html';
                 return;
             }
-            const errorData = await response.text();
-            console.error('API Error:', errorData);
-            throw new Error(`Failed to fetch: ${response.status} - ${errorData}`);
+            throw new Error('Failed to fetch submissions');
         }
 
         const data = await response.json();
-        console.log('Received data:', data);
         
         if (data.success) {
             submissions = data.submissions;
-            console.log(`Loaded ${submissions.length} submissions`);
             updateStats();
             renderTable();
         } else {
             throw new Error(data.error || 'Failed to load submissions');
         }
     } catch (error) {
-        console.error('❌ Error fetching submissions:', error);
-        showError('Failed to load submissions: ' + error.message);
+        console.error('Error fetching submissions:', error);
+        showError('Failed to load submissions. Please try again.');
         noResults.classList.add('show');
-        noResults.querySelector('h3').textContent = 'Connection Error';
-        noResults.querySelector('p').textContent = 'Could not connect to admin server. Please check your internet or contact support.';
     } finally {
         loadingSpinner.classList.remove('show');
     }
@@ -96,7 +85,6 @@ async function fetchSubmissions() {
 // ===== Update Statistics =====
 function updateStats() {
     const today = new Date().toISOString().split('T')[0];
-    
     const total = submissions.length;
     const todayCount = submissions.filter(s => 
         s.dateSubmitted && s.dateSubmitted.split('T')[0] === today
@@ -116,7 +104,6 @@ function renderTable() {
 
     noResults.classList.remove('show');
     
-    // Sort by date (latest first)
     const sortedSubmissions = [...submissions].sort((a, b) => 
         new Date(b.dateSubmitted) - new Date(a.dateSubmitted)
     );
@@ -172,8 +159,11 @@ window.viewFile = function(id) {
     currentFileUrl = submission.fileUrl;
     currentFileName = submission.fileName;
     
-    if (submission.fileUrl && submission.fileUrl !== '#') {
-        fileViewer.src = submission.fileUrl;
+    // ✅ Add token to URL for iframe access
+    const fileUrlWithToken = `${submission.fileUrl}?token=${authToken}`;
+    
+    if (fileUrlWithToken && fileUrlWithToken !== '#') {
+        fileViewer.src = fileUrlWithToken;
     } else {
         fileViewer.src = 'about:blank';
         alert('File URL not available.');
@@ -187,20 +177,36 @@ window.viewFile = function(id) {
 };
 
 // ===== Download File =====
-window.downloadFile = function(id) {
+window.downloadFile = async function(id) {
     const submission = submissions.find(s => s.id == id);
     if (!submission) return;
 
-    if (submission.fileUrl && submission.fileUrl !== '#') {
+    try {
+        // ✅ Fetch file with auth header
+        const response = await fetch(submission.fileUrl, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+            },
+        });
+
+        if (!response.ok) {
+            throw new Error('Download failed');
+        }
+
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        
         const link = document.createElement('a');
-        link.href = submission.fileUrl;
-        link.download = submission.fileName || 'download';
-        link.target = '_blank';
+        link.href = blobUrl;
+        link.download = submission.fileName || `file_${id}.pdf`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-    } else {
-        alert('File not available for download.');
+        window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+        console.error('Download error:', error);
+        alert('Failed to download file. Please try again.');
     }
 };
 
