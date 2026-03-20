@@ -1,394 +1,257 @@
-// ===== Admin Portal JavaScript =====
+/**
+ * Paul Morutse Institute · Admin Portal JS
+ * Handles fetching from D1 database and streaming from R2 storage
+ */
+
 document.addEventListener('DOMContentLoaded', function() {
-  // ===== Mobile Toggle =====
-  const mobileToggle = document.getElementById('mobileToggle');
-  const navLinks = document.getElementById('navLinks');
-  if (mobileToggle) {
-    mobileToggle.addEventListener('click', () => {
-      navLinks.classList.toggle('show');
-    });
-  }
-
-  // ===== Check Admin Auth =====
-  const authToken = sessionStorage.getItem('pmi_admin_auth');
-  if (!authToken) {
-    window.location.href = 'login.html';
-    return;
-  }
-
-  // Worker URL - Update this to your actual worker URL
-  const WORKER_URL = 'https://admin.buhlemanyike2.workers.dev';
-
-  let submissions = [];
-
-  // ===== DOM Elements =====
-  const submissionsBody = document.getElementById('submissionsBody');
-  const totalSubmissionsEl = document.getElementById('totalSubmissions');
-  const todaySubmissionsEl = document.getElementById('todaySubmissions');
-  const loadingSpinner = document.getElementById('loadingSpinner');
-  const noResults = document.getElementById('noResults');
-  const fileViewerModal = document.getElementById('fileViewerModal');
-  const fileViewer = document.getElementById('fileViewer');
-  const downloadFromViewerBtn = document.getElementById('downloadFromViewerBtn');
-
-  let currentFileId = null;
-  let currentFileName = '';
-
-  // ===== Initialize Dashboard =====
-  function initDashboard() {
-    fetchSubmissions();
-    setupEventListeners();
-  }
-
-  // ===== Fetch Submissions =====
-  async function fetchSubmissions() {
-    loadingSpinner.classList.add('show');
-    noResults.classList.remove('show');
+    // ===== Configuration =====
+    // Ensure this matches the URL of your deployed Cloudflare Worker
+    const WORKER_URL = 'https://admin.buhlemanyike2.workers.dev';
     
-    try {
-      const response = await fetch(`${WORKER_URL}/admin/submissions`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!response.ok) {
-        if (response.status === 401) {
-          sessionStorage.removeItem('pmi_admin_auth');
-          window.location.href = 'login.html';
-          return;
+    // Auth Token from your worker.js: 'pmi_admin_token_2025_secure'
+    const authToken = sessionStorage.getItem('pmi_admin_auth');
+
+    // ===== Redirect if not logged in =====
+    if (!authToken) {
+        window.location.href = 'login.html';
+        return;
+    }
+
+    let submissions = [];
+
+    // ===== DOM Elements =====
+    const submissionsBody = document.getElementById('submissionsBody');
+    const totalSubmissionsEl = document.getElementById('totalSubmissions');
+    const todaySubmissionsEl = document.getElementById('todaySubmissions');
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const noResults = document.getElementById('noResults');
+    const fileViewerModal = document.getElementById('fileViewerModal');
+    const fileViewer = document.getElementById('fileViewer');
+    const downloadFromViewerBtn = document.getElementById('downloadFromViewerBtn');
+    const mobileToggle = document.getElementById('mobileToggle');
+    const navLinks = document.getElementById('navLinks');
+
+    /**
+     * Fetch all registration data from the D1 Database via the Worker
+     */
+    async function fetchSubmissions() {
+        loadingSpinner.classList.add('show');
+        noResults.classList.remove('show');
+        
+        try {
+            const response = await fetch(`${WORKER_URL}/admin/submissions`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${authToken}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                if (response.status === 401) {
+                    sessionStorage.removeItem('pmi_admin_auth');
+                    window.location.href = 'login.html';
+                    return;
+                }
+                throw new Error(`HTTP Error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            
+            if (data.success) {
+                submissions = data.submissions || [];
+                updateStats();
+                renderTable();
+            } else {
+                throw new Error(data.error || 'Failed to load data');
+            }
+        } catch (error) {
+            console.error('Fetch error:', error);
+            showNotification('Error connecting to the server', 'error');
+            noResults.classList.add('show');
+        } finally {
+            loadingSpinner.classList.remove('show');
         }
-        throw new Error(`HTTP ${response.status}`);
-      }
+    }
 
-      const data = await response.json();
-      
-      if (data.success) {
-        submissions = data.submissions || [];
-        updateStats();
-        renderTable();
-      } else {
-        throw new Error(data.error || 'Failed to load submissions');
-      }
-    } catch (error) {
-      console.error('Error fetching submissions:', error);
-      showError('Failed to load submissions. Please refresh the page.');
-      noResults.classList.add('show');
-      noResults.querySelector('h3').textContent = 'Connection Error';
-      noResults.querySelector('p').textContent = 'Unable to load submissions. Please check your connection and refresh.';
-    } finally {
-      loadingSpinner.classList.remove('show');
+    /**
+     * Updates Dashboard Counters
+     * Uses UTC date comparison to match SQLite CURRENT_TIMESTAMP
+     */
+    function updateStats() {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const total = submissions.length;
+        const todayCount = submissions.filter(s => 
+            s.dateSubmitted && s.dateSubmitted.startsWith(todayStr)
+        ).length;
+        
+        if (totalSubmissionsEl) totalSubmissionsEl.textContent = total;
+        if (todaySubmissionsEl) todaySubmissionsEl.textContent = todayCount;
     }
-  }
 
-  // ===== Update Statistics =====
-  function updateStats() {
-    const today = new Date().toISOString().split('T')[0];
-    const total = submissions.length;
-    const todayCount = submissions.filter(s => 
-      s.dateSubmitted && s.dateSubmitted.startsWith(today)
-    ).length;
-    
-    if (totalSubmissionsEl) totalSubmissionsEl.textContent = total;
-    if (todaySubmissionsEl) todaySubmissionsEl.textContent = todayCount;
-  }
-
-  // ===== Render Table =====
-  function renderTable() {
-    if (!submissionsBody) return;
-    
-    if (!submissions || submissions.length === 0) {
-      submissionsBody.innerHTML = '';
-      if (noResults) noResults.classList.add('show');
-      return;
-    }
-    
-    if (noResults) noResults.classList.remove('show');
-
-    const sortedSubmissions = [...submissions].sort((a, b) => 
-      new Date(b.dateSubmitted) - new Date(a.dateSubmitted)
-    );
-
-    submissionsBody.innerHTML = sortedSubmissions.map(sub => {
-      const date = new Date(sub.dateSubmitted);
-      const formattedDate = date.toLocaleDateString('en-ZA', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-
-      // Get file extension for icon
-      const fileExt = sub.fileName ? sub.fileName.split('.').pop().toLowerCase() : '';
-      const fileIcon = fileExt === 'pdf' ? 'fa-file-pdf' : 
-                      (fileExt === 'jpg' || fileExt === 'jpeg' || fileExt === 'png') ? 'fa-file-image' : 
-                      'fa-file-alt';
-      const iconColor = fileExt === 'pdf' ? '#c4262e' : 
-                       (fileExt === 'jpg' || fileExt === 'jpeg' || fileExt === 'png') ? '#1e4a76' : 
-                       '#0a2c4b';
-
-      return `
-        <tr>
-          <td style="white-space: nowrap;">
-            <div style="font-weight: 500;">${escapeHtml(formattedDate)}</div>
-            <small style="color: var(--text-grey);">Ref: ${sub.id} | Grade ${sub.grade}</small>
-          </td>
-          <td>
-            <div class="file-info">
-              <i class="fas ${fileIcon}" style="color: ${iconColor}; font-size: 1.5rem;"></i>
-              <div>
-                <div class="file-name">${escapeHtml(sub.studentName || 'Unknown')}</div>
-                <small style="color: var(--text-grey);">${escapeHtml(sub.fileName || 'No file')} (${sub.fileSize || 'N/A'})</small>
-              </div>
-            </div>
-          </td>
-          <td>
-            <div class="action-buttons">
-              <button class="action-btn view-btn" onclick="viewFile(${sub.id})" title="View File">
-                <i class="fas fa-eye"></i>
-              </button>
-              <button class="action-btn download-btn" onclick="downloadFile(${sub.id})" title="Download File">
-                <i class="fas fa-download"></i>
-              </button>
-              <button class="action-btn delete-btn" onclick="deleteSubmission(${sub.id})" title="Delete Submission">
-                <i class="fas fa-trash"></i>
-              </button>
-            </div>
-          </td>
-        </tr>
-      `;
-    }).join('');
-  }
-
-  // ===== View File =====
-  window.viewFile = function(id) {
-    const submission = submissions.find(s => s.id === id);
-    if (!submission) {
-      showError('Submission not found');
-      return;
-    }
-    
-    currentFileId = id;
-    currentFileName = submission.fileName;
-    
-    // Get the r2_key from the submission
-    let r2Key = submission.r2_key;
-    if (!r2Key && submission.fileUrl) {
-      r2Key = submission.fileUrl.split('/').pop().split('?')[0];
-    }
-    
-    if (!r2Key) {
-      showError('File information not available');
-      return;
-    }
-    
-    // Construct the file URL with token for authentication
-    const fileUrl = `${WORKER_URL}/admin/file/${encodeURIComponent(r2Key)}?token=${authToken}`;
-    
-    // Set iframe source
-    if (fileViewer) {
-      fileViewer.src = fileUrl;
-    }
-    
-    // Set download button handler
-    if (downloadFromViewerBtn) {
-      downloadFromViewerBtn.onclick = () => downloadFile(id);
-    }
-    
-    // Show modal
-    if (fileViewerModal) {
-      fileViewerModal.classList.add('show');
-      document.body.style.overflow = 'hidden';
-    }
-  };
-
-  // ===== Download File =====
-  window.downloadFile = function(id) {
-    const submission = submissions.find(s => s.id === id);
-    if (!submission) {
-      showError('Submission not found');
-      return;
-    }
-    
-    // Get the r2_key from the submission
-    let r2Key = submission.r2_key;
-    if (!r2Key && submission.fileUrl) {
-      r2Key = submission.fileUrl.split('/').pop().split('?')[0];
-    }
-    
-    if (!r2Key) {
-      showError('File information not available');
-      return;
-    }
-    
-    // Construct download URL with download=true parameter
-    const downloadUrl = `${WORKER_URL}/admin/file/${encodeURIComponent(r2Key)}?token=${authToken}&download=true`;
-    
-    // Create a temporary anchor element
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = submission.fileName || 'download';
-    link.target = '_blank';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // ===== Delete Submission =====
-  window.deleteSubmission = async function(id) {
-    if (!confirm('⚠️ Delete this submission?\n\nThis action cannot be undone. The file will be permanently deleted.')) return;
-    
-    try {
-      const response = await fetch(`${WORKER_URL}/admin/submissions/${id}`, {
-        method: 'DELETE',
-        headers: { 
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        },
-      });
-      
-      if (response.ok) {
-        submissions = submissions.filter(s => s.id != id);
-        updateStats();
-        renderTable();
-        if (fileViewerModal && fileViewerModal.classList.contains('show')) {
-          closeFileViewer();
+    /**
+     * Renders the HTML Table Rows
+     */
+    function renderTable() {
+        if (!submissionsBody) return;
+        
+        if (submissions.length === 0) {
+            submissionsBody.innerHTML = '';
+            noResults.classList.add('show');
+            return;
         }
-        showSuccess('Submission deleted successfully');
-      } else {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to delete');
-      }
-    } catch (error) {
-      console.error('Error deleting:', error);
-      showError('Failed to delete submission: ' + error.message);
+        
+        noResults.classList.remove('show');
+
+        submissionsBody.innerHTML = submissions.map(sub => {
+            const date = new Date(sub.dateSubmitted);
+            const formattedDate = date.toLocaleDateString('en-ZA', {
+                year: 'numeric', month: 'short', day: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+            });
+
+            // Determine Icon based on file type
+            const isPdf = sub.fileType === 'application/pdf';
+            const icon = isPdf ? 'fa-file-pdf' : 'fa-file-image';
+            const iconColor = isPdf ? '#c4262e' : '#1e4a76';
+
+            return `
+                <tr>
+                    <td>
+                        <div style="font-weight: 600;">${escapeHtml(formattedDate)}</div>
+                        <small style="color: #666;">ID: ${sub.id} | Grade ${sub.grade}</small>
+                    </td>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <i class="fas ${icon}" style="color: ${iconColor}; font-size: 1.4rem;"></i>
+                            <div>
+                                <div style="font-weight: 500;">${escapeHtml(sub.studentName)}</div>
+                                <small style="color: #666;">${escapeHtml(sub.fileName)} (${sub.fileSize})</small>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="action-btn view-btn" onclick="viewFile('${sub.r2_key}')" title="View File">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button class="action-btn download-btn" onclick="downloadFile('${sub.r2_key}', '${sub.fileName}')" title="Download">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <button class="action-btn delete-btn" onclick="deleteSubmission(${sub.id})" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
     }
-  };
 
-  // ===== Refresh =====
-  window.refreshSubmissions = function() {
-    fetchSubmissions();
-  };
+    /**
+     * Opens Modal and streams file from R2
+     * Passes token via query string for iframe access
+     */
+    window.viewFile = function(r2Key) {
+        const fileUrl = `${WORKER_URL}/admin/file/${encodeURIComponent(r2Key)}?token=${authToken}`;
+        
+        if (fileViewer) {
+            fileViewer.src = fileUrl;
+        }
+        
+        if (downloadFromViewerBtn) {
+            downloadFromViewerBtn.onclick = () => window.downloadFile(r2Key, 'document');
+        }
+        
+        fileViewerModal.classList.add('show');
+        document.body.style.overflow = 'hidden';
+    };
 
-  // ===== Close Modal =====
-  window.closeFileViewer = function() {
-    if (fileViewerModal) {
-      fileViewerModal.classList.remove('show');
-      document.body.style.overflow = '';
+    /**
+     * Triggers file download with attachment header
+     */
+    window.downloadFile = function(r2Key, fileName) {
+        const downloadUrl = `${WORKER_URL}/admin/file/${encodeURIComponent(r2Key)}?token=${authToken}&download=true`;
+        
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    /**
+     * Deletes from both D1 and R2
+     */
+    window.deleteSubmission = async function(id) {
+        if (!confirm('⚠️ Permanently delete this submission and file?')) return;
+        
+        try {
+            const response = await fetch(`${WORKER_URL}/admin/submissions/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            
+            if (response.ok) {
+                showNotification('Record deleted successfully', 'success');
+                fetchSubmissions();
+            } else {
+                const err = await response.json();
+                throw new Error(err.error || 'Delete failed');
+            }
+        } catch (error) {
+            showNotification(error.message, 'error');
+        }
+    };
+
+    // ===== UI Helpers =====
+
+    window.closeFileViewer = function() {
+        fileViewerModal.classList.remove('show');
+        fileViewer.src = '';
+        document.body.style.overflow = '';
+    };
+
+    window.refreshSubmissions = () => fetchSubmissions();
+
+    function showNotification(message, type) {
+        const toast = document.createElement('div');
+        toast.className = `notification ${type}`;
+        toast.style.cssText = `
+            position: fixed; bottom: 20px; right: 20px; 
+            background: ${type === 'error' ? '#c4262e' : '#0a2c4b'};
+            color: white; padding: 1rem 1.5rem; border-radius: 8px;
+            z-index: 10000; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        `;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 4000);
     }
-    if (fileViewer) {
-      fileViewer.src = '';
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
-    currentFileId = null;
-    currentFileName = '';
-  };
 
-  // ===== Show Error Message =====
-  function showError(message) {
-    showNotification(message, 'error');
-  }
+    // ===== Navigation & Events =====
 
-  // ===== Show Success Message =====
-  function showSuccess(message) {
-    showNotification(message, 'success');
-  }
+    if (mobileToggle) {
+        mobileToggle.addEventListener('click', () => navLinks.classList.toggle('show'));
+    }
 
-  // ===== Show Notification =====
-  function showNotification(message, type) {
-    const notification = document.createElement('div');
-    notification.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: ${type === 'error' ? '#c4262e' : '#0a2c4b'};
-      color: white;
-      padding: 1rem 1.5rem;
-      border-radius: 8px;
-      z-index: 10000;
-      max-width: 400px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-      animation: slideInRight 0.3s ease;
-      font-family: 'Inter', sans-serif;
-      font-size: 0.9rem;
-    `;
-    notification.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 0.75rem;">
-        <i class="fas ${type === 'error' ? 'fa-exclamation-circle' : 'fa-check-circle'}"></i>
-        <span>${escapeHtml(message)}</span>
-      </div>
-    `;
-    document.body.appendChild(notification);
-    setTimeout(() => {
-      notification.style.opacity = '0';
-      notification.style.transform = 'translateX(100%)';
-      notification.style.transition = 'all 0.3s ease';
-      setTimeout(() => notification.remove(), 300);
-    }, 4000);
-  }
-
-  // ===== Escape HTML =====
-  function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
-  // ===== Event Listeners =====
-  function setupEventListeners() {
-    // Logout button
-    const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) {
-      logoutBtn.addEventListener('click', function(e) {
+    document.getElementById('logoutBtn')?.addEventListener('click', (e) => {
         e.preventDefault();
-        if (confirm('Are you sure you want to logout?')) {
-          sessionStorage.removeItem('pmi_admin_auth');
-          sessionStorage.removeItem('pmi_admin_email');
-          window.location.href = 'login.html';
-        }
-      });
-    }
-
-    // Refresh button
-    const refreshBtn = document.getElementById('refreshBtn');
-    if (refreshBtn) {
-      refreshBtn.addEventListener('click', () => fetchSubmissions());
-    }
-
-    // Modal close on outside click
-    if (fileViewerModal) {
-      fileViewerModal.addEventListener('click', (e) => {
-        if (e.target === fileViewerModal) closeFileViewer();
-      });
-    }
-
-    // ESC key to close modal
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && fileViewerModal && fileViewerModal.classList.contains('show')) {
-        closeFileViewer();
-      }
+        sessionStorage.clear();
+        window.location.href = 'login.html';
     });
-  }
 
-  // Add animation styles
-  const style = document.createElement('style');
-  style.textContent = `
-    @keyframes slideInRight {
-      from {
-        opacity: 0;
-        transform: translateX(100%);
-      }
-      to {
-        opacity: 1;
-        transform: translateX(0);
-      }
-    }
-  `;
-  document.head.appendChild(style);
+    // Close modal on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeFileViewer();
+    });
 
-  // ===== Initialize =====
-  initDashboard();
+    // Initialize
+    fetchSubmissions();
 });
