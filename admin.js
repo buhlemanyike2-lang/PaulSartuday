@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', function() {
     return;
   }
 
-  // ✅ UPDATE THIS TO YOUR ACTUAL WORKER URL
+  // Worker URL - Update this to your actual worker URL
   const WORKER_URL = 'https://admin-portal.buhlemanyike2.workers.dev';
 
   let submissions = [];
@@ -46,8 +46,6 @@ document.addEventListener('DOMContentLoaded', function() {
     noResults.classList.remove('show');
     
     try {
-      console.log('🔍 Fetching from:', `${WORKER_URL}/admin/submissions`);
-      
       const response = await fetch(`${WORKER_URL}/admin/submissions`, {
         method: 'GET',
         headers: {
@@ -55,38 +53,31 @@ document.addEventListener('DOMContentLoaded', function() {
           'Content-Type': 'application/json',
         },
       });
-
-      console.log('📡 Response status:', response.status);
       
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ API Error:', response.status, errorText);
-        
         if (response.status === 401) {
           sessionStorage.removeItem('pmi_admin_auth');
           window.location.href = 'login.html';
           return;
         }
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
+        throw new Error(`HTTP ${response.status}`);
       }
 
       const data = await response.json();
-      console.log('✅ Received data:', data);
       
       if (data.success) {
         submissions = data.submissions || [];
-        console.log(`📦 Loaded ${submissions.length} submissions`);
         updateStats();
         renderTable();
       } else {
         throw new Error(data.error || 'Failed to load submissions');
       }
     } catch (error) {
-      console.error('💥 Error fetching submissions:', error);
-      showError('Failed to load: ' + error.message);
+      console.error('Error fetching submissions:', error);
+      showError('Failed to load submissions. Please refresh the page.');
       noResults.classList.add('show');
       noResults.querySelector('h3').textContent = 'Connection Error';
-      noResults.querySelector('p').textContent = 'Check console for details or contact support.';
+      noResults.querySelector('p').textContent = 'Unable to load submissions. Please check your connection and refresh.';
     } finally {
       loadingSpinner.classList.remove('show');
     }
@@ -99,18 +90,22 @@ document.addEventListener('DOMContentLoaded', function() {
     const todayCount = submissions.filter(s => 
       s.dateSubmitted && s.dateSubmitted.startsWith(today)
     ).length;
-    totalSubmissionsEl.textContent = total;
-    todaySubmissionsEl.textContent = todayCount;
+    
+    if (totalSubmissionsEl) totalSubmissionsEl.textContent = total;
+    if (todaySubmissionsEl) todaySubmissionsEl.textContent = todayCount;
   }
 
   // ===== Render Table =====
   function renderTable() {
+    if (!submissionsBody) return;
+    
     if (!submissions || submissions.length === 0) {
       submissionsBody.innerHTML = '';
-      noResults.classList.add('show');
+      if (noResults) noResults.classList.add('show');
       return;
     }
-    noResults.classList.remove('show');
+    
+    if (noResults) noResults.classList.remove('show');
 
     const sortedSubmissions = [...submissions].sort((a, b) => 
       new Date(b.dateSubmitted) - new Date(a.dateSubmitted)
@@ -126,15 +121,24 @@ document.addEventListener('DOMContentLoaded', function() {
         minute: '2-digit'
       });
 
+      // Get file extension for icon
+      const fileExt = sub.fileName ? sub.fileName.split('.').pop().toLowerCase() : '';
+      const fileIcon = fileExt === 'pdf' ? 'fa-file-pdf' : 
+                      (fileExt === 'jpg' || fileExt === 'jpeg' || fileExt === 'png') ? 'fa-file-image' : 
+                      'fa-file-alt';
+      const iconColor = fileExt === 'pdf' ? '#c4262e' : 
+                       (fileExt === 'jpg' || fileExt === 'jpeg' || fileExt === 'png') ? '#1e4a76' : 
+                       '#0a2c4b';
+
       return `
         <tr>
-          <td>
-            <div style="font-weight: 500;">${formattedDate}</div>
+          <td style="white-space: nowrap;">
+            <div style="font-weight: 500;">${escapeHtml(formattedDate)}</div>
             <small style="color: var(--text-grey);">Ref: ${sub.id} | Grade ${sub.grade}</small>
           </td>
           <td>
             <div class="file-info">
-              <i class="fas fa-file-pdf file-icon"></i>
+              <i class="fas ${fileIcon}" style="color: ${iconColor}; font-size: 1.5rem;"></i>
               <div>
                 <div class="file-name">${escapeHtml(sub.studentName || 'Unknown')}</div>
                 <small style="color: var(--text-grey);">${escapeHtml(sub.fileName || 'No file')} (${sub.fileSize || 'N/A'})</small>
@@ -143,13 +147,13 @@ document.addEventListener('DOMContentLoaded', function() {
           </td>
           <td>
             <div class="action-buttons">
-              <button class="action-btn view-btn" onclick="viewFile(${sub.id})" title="View">
+              <button class="action-btn view-btn" onclick="viewFile(${sub.id})" title="View File">
                 <i class="fas fa-eye"></i>
               </button>
-              <button class="action-btn download-btn" onclick="downloadFile(${sub.id})" title="Download">
+              <button class="action-btn download-btn" onclick="downloadFile(${sub.id})" title="Download File">
                 <i class="fas fa-download"></i>
               </button>
-              <button class="action-btn delete-btn" onclick="deleteSubmission(${sub.id})" title="Delete">
+              <button class="action-btn delete-btn" onclick="deleteSubmission(${sub.id})" title="Delete Submission">
                 <i class="fas fa-trash"></i>
               </button>
             </div>
@@ -159,51 +163,69 @@ document.addEventListener('DOMContentLoaded', function() {
     }).join('');
   }
 
-  // Helper function to escape HTML
-  function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
   // ===== View File =====
   window.viewFile = function(id) {
-    const submission = submissions.find(s => s.id === id);
+    const submission = submissions.find(s => s.id == id);
     if (!submission) {
-      console.error('Submission not found:', id);
+      showError('Submission not found');
       return;
     }
     
     currentFileId = id;
     currentFileName = submission.fileName;
     
-    // Construct the file URL with token for authentication
-    const fileUrl = `${WORKER_URL}/admin/file/${encodeURIComponent(submission.r2_key || submission.fileUrl.split('/').pop())}?token=${authToken}`;
+    // Get the r2_key from the submission
+    let r2Key = submission.r2_key;
+    if (!r2Key && submission.fileUrl) {
+      r2Key = submission.fileUrl.split('/').pop().split('?')[0];
+    }
     
-    console.log('Viewing file:', fileUrl);
+    if (!r2Key) {
+      showError('File information not available');
+      return;
+    }
+    
+    // Construct the file URL with token for authentication
+    const fileUrl = `${WORKER_URL}/admin/file/${encodeURIComponent(r2Key)}?token=${authToken}`;
     
     // Set iframe source
-    fileViewer.src = fileUrl;
+    if (fileViewer) {
+      fileViewer.src = fileUrl;
+    }
     
     // Set download button handler
-    downloadFromViewerBtn.onclick = () => downloadFile(id);
+    if (downloadFromViewerBtn) {
+      downloadFromViewerBtn.onclick = () => downloadFile(id);
+    }
     
     // Show modal
-    fileViewerModal.classList.add('show');
+    if (fileViewerModal) {
+      fileViewerModal.classList.add('show');
+      document.body.style.overflow = 'hidden';
+    }
   };
 
   // ===== Download File =====
   window.downloadFile = function(id) {
-    const submission = submissions.find(s => s.id === id);
+    const submission = submissions.find(s => s.id == id);
     if (!submission) {
-      console.error('Submission not found:', id);
+      showError('Submission not found');
+      return;
+    }
+    
+    // Get the r2_key from the submission
+    let r2Key = submission.r2_key;
+    if (!r2Key && submission.fileUrl) {
+      r2Key = submission.fileUrl.split('/').pop().split('?')[0];
+    }
+    
+    if (!r2Key) {
+      showError('File information not available');
       return;
     }
     
     // Construct download URL with download=true parameter
-    const downloadUrl = `${WORKER_URL}/admin/file/${encodeURIComponent(submission.r2_key || submission.fileUrl.split('/').pop())}?token=${authToken}&download=true`;
-    
-    console.log('Downloading from:', downloadUrl);
+    const downloadUrl = `${WORKER_URL}/admin/file/${encodeURIComponent(r2Key)}?token=${authToken}&download=true`;
     
     // Create a temporary anchor element
     const link = document.createElement('a');
@@ -217,7 +239,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ===== Delete Submission =====
   window.deleteSubmission = async function(id) {
-    if (!confirm('Delete this submission? This cannot be undone.')) return;
+    if (!confirm('⚠️ Delete this submission?\n\nThis action cannot be undone. The file will be permanently deleted.')) return;
     
     try {
       const response = await fetch(`${WORKER_URL}/admin/submissions/${id}`, {
@@ -232,15 +254,17 @@ document.addEventListener('DOMContentLoaded', function() {
         submissions = submissions.filter(s => s.id != id);
         updateStats();
         renderTable();
-        if (fileViewerModal.classList.contains('show')) closeFileViewer();
-        alert('✅ Deleted successfully');
+        if (fileViewerModal && fileViewerModal.classList.contains('show')) {
+          closeFileViewer();
+        }
+        showSuccess('Submission deleted successfully');
       } else {
         const error = await response.json();
         throw new Error(error.error || 'Failed to delete');
       }
     } catch (error) {
       console.error('Error deleting:', error);
-      alert('❌ Failed to delete submission: ' + error.message);
+      showError('Failed to delete submission: ' + error.message);
     }
   };
 
@@ -251,26 +275,76 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ===== Close Modal =====
   window.closeFileViewer = function() {
-    fileViewerModal.classList.remove('show');
-    fileViewer.src = '';
+    if (fileViewerModal) {
+      fileViewerModal.classList.remove('show');
+      document.body.style.overflow = '';
+    }
+    if (fileViewer) {
+      fileViewer.src = '';
+    }
     currentFileId = null;
     currentFileName = '';
   };
 
-  // ===== Show Error =====
+  // ===== Show Error Message =====
   function showError(message) {
-    console.error('⚠️', message);
-    // You can implement a toast notification here instead of alert
-    alert('⚠️ ' + message);
+    showNotification(message, 'error');
+  }
+
+  // ===== Show Success Message =====
+  function showSuccess(message) {
+    showNotification(message, 'success');
+  }
+
+  // ===== Show Notification =====
+  function showNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: ${type === 'error' ? '#c4262e' : '#0a2c4b'};
+      color: white;
+      padding: 1rem 1.5rem;
+      border-radius: 8px;
+      z-index: 10000;
+      max-width: 400px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      animation: slideInRight 0.3s ease;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.9rem;
+    `;
+    notification.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <i class="fas ${type === 'error' ? 'fa-exclamation-circle' : 'fa-check-circle'}"></i>
+        <span>${escapeHtml(message)}</span>
+      </div>
+    `;
+    document.body.appendChild(notification);
+    setTimeout(() => {
+      notification.style.opacity = '0';
+      notification.style.transform = 'translateX(100%)';
+      notification.style.transition = 'all 0.3s ease';
+      setTimeout(() => notification.remove(), 300);
+    }, 4000);
+  }
+
+  // ===== Escape HTML =====
+  function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   // ===== Event Listeners =====
   function setupEventListeners() {
+    // Logout button
     const logoutBtn = document.getElementById('logoutBtn');
     if (logoutBtn) {
       logoutBtn.addEventListener('click', function(e) {
         e.preventDefault();
-        if (confirm('Logout?')) {
+        if (confirm('Are you sure you want to logout?')) {
           sessionStorage.removeItem('pmi_admin_auth');
           sessionStorage.removeItem('pmi_admin_email');
           window.location.href = 'login.html';
@@ -278,23 +352,42 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     }
 
+    // Refresh button
     const refreshBtn = document.getElementById('refreshBtn');
     if (refreshBtn) {
       refreshBtn.addEventListener('click', () => fetchSubmissions());
     }
 
+    // Modal close on outside click
     if (fileViewerModal) {
       fileViewerModal.addEventListener('click', (e) => {
         if (e.target === fileViewerModal) closeFileViewer();
       });
     }
 
+    // ESC key to close modal
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && fileViewerModal && fileViewerModal.classList.contains('show')) {
         closeFileViewer();
       }
     });
   }
+
+  // Add animation styles
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes slideInRight {
+      from {
+        opacity: 0;
+        transform: translateX(100%);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+  `;
+  document.head.appendChild(style);
 
   // ===== Initialize =====
   initDashboard();
