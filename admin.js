@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // Worker URL - Update this to your actual worker URL
-  const WORKER_URL = 'https://admin-portal.buhlemanyike2.workers.dev';
+  const WORKER_URL = 'https://admin.buhlemanyike2.workers.dev';
 
   let submissions = [];
 
