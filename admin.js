@@ -16,10 +16,9 @@ document.addEventListener('DOMContentLoaded', function() {
     return;
   }
 
-  // ===== WORKER API URL - UPDATE THIS TO YOUR ADMIN WORKER =====
-  const WORKER_URL = 'https://admin-portal.buhlemanyike2.workers.dev'; // ← CHANGE THIS!
+  // ✅ UPDATE THIS TO YOUR ACTUAL WORKER URL
+  const WORKER_URL = 'https://admin-portal.buhlemanyike2.workers.dev';
 
-  // ===== Initialize empty submissions array =====
   let submissions = [];
 
   // ===== DOM Elements =====
@@ -32,7 +31,6 @@ document.addEventListener('DOMContentLoaded', function() {
   const fileViewer = document.getElementById('fileViewer');
   const downloadFromViewerBtn = document.getElementById('downloadFromViewerBtn');
 
-  // ===== Current selected file for download =====
   let currentFileUrl = '';
   let currentFileName = '';
 
@@ -42,12 +40,13 @@ document.addEventListener('DOMContentLoaded', function() {
     setupEventListeners();
   }
 
-  // ===== Fetch Submissions from Worker API =====
+  // ===== Fetch Submissions =====
   async function fetchSubmissions() {
     loadingSpinner.classList.add('show');
+    noResults.classList.remove('show');
     
     try {
-      console.log('Fetching from:', `${WORKER_URL}/admin/submissions`);
+      console.log('🔍 Fetching from:', `${WORKER_URL}/admin/submissions`);
       
       const response = await fetch(`${WORKER_URL}/admin/submissions`, {
         method: 'GET',
@@ -57,37 +56,37 @@ document.addEventListener('DOMContentLoaded', function() {
         },
       });
 
-      console.log('Response status:', response.status);
+      console.log('📡 Response status:', response.status);
       
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ API Error:', response.status, errorText);
+        
         if (response.status === 401) {
-          console.error('Unauthorized - clearing auth');
           sessionStorage.removeItem('pmi_admin_auth');
           window.location.href = 'login.html';
           return;
         }
-        const errorData = await response.text();
-        console.error('API Error:', errorData);
-        throw new Error(`Failed to fetch: ${response.status} - ${errorData}`);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
       const data = await response.json();
-      console.log('Received data:', data);
+      console.log('✅ Received data:', data);
       
       if (data.success) {
-        submissions = data.submissions;
-        console.log(`Loaded ${submissions.length} submissions`);
+        submissions = data.submissions || [];
+        console.log(`📦 Loaded ${submissions.length} submissions`);
         updateStats();
         renderTable();
       } else {
         throw new Error(data.error || 'Failed to load submissions');
       }
     } catch (error) {
-      console.error('❌ Error fetching submissions:', error);
-      showError('Failed to load submissions: ' + error.message);
+      console.error('💥 Error fetching submissions:', error);
+      showError('Failed to load: ' + error.message);
       noResults.classList.add('show');
       noResults.querySelector('h3').textContent = 'Connection Error';
-      noResults.querySelector('p').textContent = 'Could not connect to admin server. Please check your internet or contact support.';
+      noResults.querySelector('p').textContent = 'Check console for details or contact support.';
     } finally {
       loadingSpinner.classList.remove('show');
     }
@@ -98,23 +97,21 @@ document.addEventListener('DOMContentLoaded', function() {
     const today = new Date().toISOString().split('T')[0];
     const total = submissions.length;
     const todayCount = submissions.filter(s => 
-      s.dateSubmitted && s.dateSubmitted.split('T')[0] === today
+      s.dateSubmitted && s.dateSubmitted.startsWith(today)
     ).length;
-
     totalSubmissionsEl.textContent = total;
     todaySubmissionsEl.textContent = todayCount;
   }
 
   // ===== Render Table =====
   function renderTable() {
-    if (submissions.length === 0) {
+    if (!submissions || submissions.length === 0) {
       submissionsBody.innerHTML = '';
       noResults.classList.add('show');
       return;
     }
     noResults.classList.remove('show');
 
-    // Sort by date (latest first)
     const sortedSubmissions = [...submissions].sort((a, b) => 
       new Date(b.dateSubmitted) - new Date(a.dateSubmitted)
     );
@@ -146,7 +143,7 @@ document.addEventListener('DOMContentLoaded', function() {
           </td>
           <td>
             <div class="action-buttons">
-              <button class="action-btn view-btn" onclick="viewFile('${sub.id}')" title="View File">
+              <button class="action-btn view-btn" onclick="viewFile('${sub.id}')" title="View">
                 <i class="fas fa-eye"></i>
               </button>
               <button class="action-btn download-btn" onclick="downloadFile('${sub.id}')" title="Download">
@@ -170,10 +167,9 @@ document.addEventListener('DOMContentLoaded', function() {
     currentFileUrl = submission.fileUrl;
     currentFileName = submission.fileName;
 
-    // ✅ Remove download parameter for viewing (ensure inline display)
-    let viewUrl = submission.fileUrl;
-    viewUrl = viewUrl.replace(/[?&]download=true/g, '');
-
+    // Remove download param for viewing
+    let viewUrl = submission.fileUrl.replace(/[?&]download=true/g, '');
+    
     if (viewUrl && viewUrl !== '#') {
       fileViewer.src = viewUrl;
     } else {
@@ -181,10 +177,7 @@ document.addEventListener('DOMContentLoaded', function() {
       alert('File URL not available.');
     }
 
-    downloadFromViewerBtn.onclick = function() {
-      downloadFile(id);
-    };
-
+    downloadFromViewerBtn.onclick = () => downloadFile(id);
     fileViewerModal.classList.add('show');
   };
 
@@ -194,12 +187,12 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!submission) return;
     
     if (submission.fileUrl && submission.fileUrl !== '#') {
-      // ✅ Add download=true parameter to force file download
+      // Add download=true to force download
       let downloadUrl = submission.fileUrl;
       if (!downloadUrl.includes('download=')) {
         downloadUrl += (downloadUrl.includes('?') ? '&' : '?') + 'download=true';
       }
-
+      
       const link = document.createElement('a');
       link.href = downloadUrl;
       link.download = submission.fileName || 'download';
@@ -214,39 +207,31 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ===== Delete Submission =====
   window.deleteSubmission = async function(id) {
-    if (confirm('Are you sure you want to delete this submission? This cannot be undone.')) {
-      try {
-        const response = await fetch(`${WORKER_URL}/admin/submissions/${id}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${authToken}`,
-          },
-        });
-        
-        if (response.ok) {
-          submissions = submissions.filter(s => s.id != id);
-          updateStats();
-          renderTable();
-          
-          if (fileViewerModal.classList.contains('show')) {
-            closeFileViewer();
-          }
-          
-          alert('Submission deleted successfully.');
-        } else {
-          throw new Error('Failed to delete');
-        }
-      } catch (error) {
-        console.error('Error deleting:', error);
-        alert('Failed to delete submission.');
+    if (!confirm('Delete this submission? This cannot be undone.')) return;
+    
+    try {
+      const response = await fetch(`${WORKER_URL}/admin/submissions/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+      
+      if (response.ok) {
+        submissions = submissions.filter(s => s.id != id);
+        updateStats();
+        renderTable();
+        if (fileViewerModal.classList.contains('show')) closeFileViewer();
+        alert('✅ Deleted successfully');
+      } else {
+        throw new Error('Failed to delete');
       }
+    } catch (error) {
+      console.error('Error deleting:', error);
+      alert('❌ Failed to delete submission');
     }
   };
 
   // ===== Refresh =====
-  window.refreshSubmissions = function() {
-    fetchSubmissions();
-  };
+  window.refreshSubmissions = fetchSubmissions;
 
   // ===== Close Modal =====
   window.closeFileViewer = function() {
@@ -256,6 +241,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ===== Show Error =====
   function showError(message) {
+    console.error('⚠️', message);
     alert('⚠️ ' + message);
   }
 
@@ -270,11 +256,13 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     });
 
-    fileViewerModal.addEventListener('click', function(e) {
+    document.getElementById('refreshBtn')?.addEventListener('click', fetchSubmissions);
+
+    fileViewerModal.addEventListener('click', (e) => {
       if (e.target === fileViewerModal) closeFileViewer();
     });
 
-    document.addEventListener('keydown', function(e) {
+    document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && fileViewerModal.classList.contains('show')) {
         closeFileViewer();
       }
