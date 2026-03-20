@@ -165,7 +165,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ===== View File =====
   window.viewFile = function(id) {
-    const submission = submissions.find(s => s.id == id);
+    const submission = submissions.find(s => s.id === id);
     if (!submission) {
       showError('Submission not found');
       return;
@@ -207,7 +207,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ===== Download File =====
   window.downloadFile = function(id) {
-    const submission = submissions.find(s => s.id == id);
+    const submission = submissions.find(s => s.id === id);
     if (!submission) {
       showError('Submission not found');
       return;
