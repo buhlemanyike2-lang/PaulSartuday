@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const fileViewer = document.getElementById('fileViewer');
   const downloadFromViewerBtn = document.getElementById('downloadFromViewerBtn');
 
-  let currentFileUrl = '';
+  let currentFileId = null;
   let currentFileName = '';
 
   // ===== Initialize Dashboard =====
@@ -136,20 +136,20 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="file-info">
               <i class="fas fa-file-pdf file-icon"></i>
               <div>
-                <div class="file-name">${sub.studentName || 'Unknown'}</div>
-                <small style="color: var(--text-grey);">${sub.fileName || 'No file'} (${sub.fileSize || 'N/A'})</small>
+                <div class="file-name">${escapeHtml(sub.studentName || 'Unknown')}</div>
+                <small style="color: var(--text-grey);">${escapeHtml(sub.fileName || 'No file')} (${sub.fileSize || 'N/A'})</small>
               </div>
             </div>
           </td>
           <td>
             <div class="action-buttons">
-              <button class="action-btn view-btn" onclick="viewFile('${sub.id}')" title="View">
+              <button class="action-btn view-btn" onclick="viewFile(${sub.id})" title="View">
                 <i class="fas fa-eye"></i>
               </button>
-              <button class="action-btn download-btn" onclick="downloadFile('${sub.id}')" title="Download">
+              <button class="action-btn download-btn" onclick="downloadFile(${sub.id})" title="Download">
                 <i class="fas fa-download"></i>
               </button>
-              <button class="action-btn delete-btn" onclick="deleteSubmission('${sub.id}')" title="Delete">
+              <button class="action-btn delete-btn" onclick="deleteSubmission(${sub.id})" title="Delete">
                 <i class="fas fa-trash"></i>
               </button>
             </div>
@@ -159,50 +159,60 @@ document.addEventListener('DOMContentLoaded', function() {
     }).join('');
   }
 
+  // Helper function to escape HTML
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
   // ===== View File =====
   window.viewFile = function(id) {
     const submission = submissions.find(s => s.id == id);
-    if (!submission) return;
-    
-    currentFileUrl = submission.fileUrl;
-    currentFileName = submission.fileName;
-
-    // Remove download param for viewing
-    let viewUrl = submission.fileUrl.replace(/[?&]download=true/g, '');
-    
-    if (viewUrl && viewUrl !== '#') {
-      fileViewer.src = viewUrl;
-    } else {
-      fileViewer.src = 'about:blank';
-      alert('File URL not available.');
+    if (!submission) {
+      console.error('Submission not found:', id);
+      return;
     }
-
+    
+    currentFileId = id;
+    currentFileName = submission.fileName;
+    
+    // Construct the file URL with token for authentication
+    const fileUrl = `${WORKER_URL}/admin/file/${encodeURIComponent(submission.r2_key || submission.fileUrl.split('/').pop())}?token=${authToken}`;
+    
+    console.log('Viewing file:', fileUrl);
+    
+    // Set iframe source
+    fileViewer.src = fileUrl;
+    
+    // Set download button handler
     downloadFromViewerBtn.onclick = () => downloadFile(id);
+    
+    // Show modal
     fileViewerModal.classList.add('show');
   };
 
   // ===== Download File =====
   window.downloadFile = function(id) {
     const submission = submissions.find(s => s.id == id);
-    if (!submission) return;
-    
-    if (submission.fileUrl && submission.fileUrl !== '#') {
-      // Add download=true to force download
-      let downloadUrl = submission.fileUrl;
-      if (!downloadUrl.includes('download=')) {
-        downloadUrl += (downloadUrl.includes('?') ? '&' : '?') + 'download=true';
-      }
-      
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = submission.fileName || 'download';
-      link.target = '_blank';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } else {
-      alert('File not available for download.');
+    if (!submission) {
+      console.error('Submission not found:', id);
+      return;
     }
+    
+    // Construct download URL with download=true parameter
+    const downloadUrl = `${WORKER_URL}/admin/file/${encodeURIComponent(submission.r2_key || submission.fileUrl.split('/').pop())}?token=${authToken}&download=true`;
+    
+    console.log('Downloading from:', downloadUrl);
+    
+    // Create a temporary anchor element
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = submission.fileName || 'download';
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   // ===== Delete Submission =====
@@ -212,7 +222,10 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
       const response = await fetch(`${WORKER_URL}/admin/submissions/${id}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${authToken}` },
+        headers: { 
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        },
       });
       
       if (response.ok) {
@@ -222,48 +235,62 @@ document.addEventListener('DOMContentLoaded', function() {
         if (fileViewerModal.classList.contains('show')) closeFileViewer();
         alert('✅ Deleted successfully');
       } else {
-        throw new Error('Failed to delete');
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete');
       }
     } catch (error) {
       console.error('Error deleting:', error);
-      alert('❌ Failed to delete submission');
+      alert('❌ Failed to delete submission: ' + error.message);
     }
   };
 
   // ===== Refresh =====
-  window.refreshSubmissions = fetchSubmissions;
+  window.refreshSubmissions = function() {
+    fetchSubmissions();
+  };
 
   // ===== Close Modal =====
   window.closeFileViewer = function() {
     fileViewerModal.classList.remove('show');
     fileViewer.src = '';
+    currentFileId = null;
+    currentFileName = '';
   };
 
   // ===== Show Error =====
   function showError(message) {
     console.error('⚠️', message);
+    // You can implement a toast notification here instead of alert
     alert('⚠️ ' + message);
   }
 
   // ===== Event Listeners =====
   function setupEventListeners() {
-    document.getElementById('logoutBtn')?.addEventListener('click', function(e) {
-      e.preventDefault();
-      if (confirm('Logout?')) {
-        sessionStorage.removeItem('pmi_admin_auth');
-        sessionStorage.removeItem('pmi_admin_email');
-        window.location.href = 'login.html';
-      }
-    });
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        if (confirm('Logout?')) {
+          sessionStorage.removeItem('pmi_admin_auth');
+          sessionStorage.removeItem('pmi_admin_email');
+          window.location.href = 'login.html';
+        }
+      });
+    }
 
-    document.getElementById('refreshBtn')?.addEventListener('click', fetchSubmissions);
+    const refreshBtn = document.getElementById('refreshBtn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => fetchSubmissions());
+    }
 
-    fileViewerModal.addEventListener('click', (e) => {
-      if (e.target === fileViewerModal) closeFileViewer();
-    });
+    if (fileViewerModal) {
+      fileViewerModal.addEventListener('click', (e) => {
+        if (e.target === fileViewerModal) closeFileViewer();
+      });
+    }
 
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && fileViewerModal.classList.contains('show')) {
+      if (e.key === 'Escape' && fileViewerModal && fileViewerModal.classList.contains('show')) {
         closeFileViewer();
       }
     });
